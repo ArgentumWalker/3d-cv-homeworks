@@ -18,6 +18,7 @@ from typing import IO
 import click
 import cv2
 import numpy as np
+from sklearn.preprocessing import normalize
 
 import frameseq
 
@@ -83,6 +84,9 @@ def _to_int_tuple(point):
     return tuple(map(int, np.round(point)))
 
 
+__point_colors = [rgb / np.max(rgb) for rgb in [np.random.rand(3) for i in range(255)]]
+
+
 def draw(grayscale_image: np.ndarray, corners: FrameCorners) -> np.ndarray:
     """
     Draw corners on image.
@@ -92,10 +96,10 @@ def draw(grayscale_image: np.ndarray, corners: FrameCorners) -> np.ndarray:
     :return: BGR image with drawn corners.
     """
     bgr = cv2.cvtColor(grayscale_image, cv2.COLOR_GRAY2BGR)
-    for point, block_size in zip(corners.points, corners.sizes):
+    for id, point, block_size in zip(corners.ids, corners.points, corners.sizes):
         point = _to_int_tuple(point)
         radius = block_size / 2
-        cv2.circle(bgr, point, radius, (0, 1, 0))
+        cv2.circle(bgr, point, radius, __point_colors[id[0] % 255])
     return bgr
 
 
