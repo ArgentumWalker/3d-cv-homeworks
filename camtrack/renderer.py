@@ -15,16 +15,9 @@ from OpenGL.arrays import vbo
 import data3d
 
 
-def _build_cam_params(w, h, fov_y, f, n):
-    tan = np.tan(fov_y)
-    l, r = - n * w / h * tan, n * w / h * tan
-    b, t = - n * tan, n * tan
-    return l, r, b, t, f, n
-
-
-def _build_cam_box(aspect_ratio, fov_y, f=20, n=1):
+def _build_cam_box(aspect_ratio, fov_y, f=20, n=0.01):
     w, h = aspect_ratio, 1
-    tan = np.tan(fov_y)
+    tan = np.tan(fov_y/2)
     nl, nr = - n * w / h * tan, n * w / h * tan
     nb, nt = - n * tan, n * tan
     fl, fr = - f * w / h * tan, f * w / h * tan
@@ -44,9 +37,19 @@ def _build_4d_rot_matrix(rot_mat, tr_vec):
     return v4d
 
 
-def _build_projection_matrix(w, h, fov_y, n=0.01, f=100):
+def _build_view_matrix(rot_mat, tr_vec):
+    rot_mat = np.concatenate((rot_mat.transpose(), np.zeros((1, 3))))
+    rot_mat = np.concatenate((rot_mat, np.zeros((4, 1))), axis=1)
+    rot_mat[3][3] = 1
+
+    v4d = np.eye(4)
+    v4d[:3, 3] = tr_vec
+    return rot_mat.dot(v4d)
+
+
+def _build_projection_matrix(w, h, fov_y, n=0.001, f=100):
     # base_n = h / 2 / tan
-    tan = np.tan(fov_y)
+    tan = np.tan(fov_y/2)
     l, r = - n * w / h * tan, n * w / h * tan
     b, t = - n * tan, n * tan
 
@@ -118,7 +121,7 @@ class CameraTrackRenderer:
         self.points = vbo.VBO(np.array([self.inv_mat.dot(p) for p in point_cloud.points], dtype=np.float32).reshape((-1,)))
         self.colors = vbo.VBO(np.array(point_cloud.colors, dtype=np.float32).reshape((-1,)))
         self.cam_track = tracked_cam_track
-        self.track = vbo.VBO(np.array([(-tr1.t_vec, -tr2.t_vec)
+        self.track = vbo.VBO(np.array([(self.inv_mat.dot(tr1.t_vec), self.inv_mat.dot(tr2.t_vec))
                                        for tr1, tr2 in zip(self.cam_track[1:], self.cam_track)],
                                       dtype=np.float32).reshape((-1,)))
         self.cam_box = vbo.VBO(_build_cam_box(tracked_cam_parameters.aspect_ratio, tracked_cam_parameters.fov_y))
@@ -145,7 +148,7 @@ class CameraTrackRenderer:
 
         p = _build_projection_matrix(GLUT.glutGet(GLUT.GLUT_WINDOW_WIDTH), GLUT.glutGet(GLUT.GLUT_WINDOW_HEIGHT), camera_fov_y)
 
-        mvp = p.dot(_build_4d_rot_matrix(camera_rot_mat, -camera_tr_vec)).astype(np.float32)
+        mvp = p.dot(_build_view_matrix(camera_rot_mat, -camera_tr_vec)).astype(np.float32)
 
         # a frame in which a tracked camera model and frustrum should be drawn
         # without interpolation
@@ -155,8 +158,8 @@ class CameraTrackRenderer:
 
         self._render(mvp, self.points, self._points_shader, self.colors)
         self._render(mvp, self.track, self._points_shader, points=False)
-        self._render(mvp.dot(_build_4d_rot_matrix(self.cam_track[tracked_cam_track_pos].r_mat,
-                                                  -self.cam_track[tracked_cam_track_pos].t_vec)),
+        self._render(mvp.dot(_build_4d_rot_matrix(self.cam_track[tracked_cam_track_pos].r_mat.transpose(),
+                                                  self.inv_mat.dot(self.cam_track[tracked_cam_track_pos].t_vec))),
                      self.cam_box, self._points_shader, points=False)
 
         GLUT.glutSwapBuffers()
