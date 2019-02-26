@@ -22,7 +22,6 @@ def _build_cam_box(aspect_ratio, fov_y, f=20, n=0.01):
     nb, nt = - n * tan, n * tan
     fl, fr = - f * w / h * tan, f * w / h * tan
     fb, ft = - f * tan, f * tan
-    n, f = -n, -f
     return np.array([((nl, nb, n), (nl, nt, n)), ((nl, nt, n), (nr, nt, n)), ((nr, nt, n), (nr, nb, n)), ((nr, nb, n), (nl, nb, n)),
                      ((fl, fb, f), (fl, ft, f)), ((fl, ft, f), (fr, ft, f)), ((fr, ft, f), (fr, fb, f)), ((fr, fb, f), (fl, fb, f)),
                      ((nl, nb, n), (fl, fb, f)), ((nl, nt, n), (fl, ft, f)), ((nr, nt, n), (fr, ft, f)), ((nr, nb, n), (fr, fb, f))],
@@ -117,11 +116,11 @@ class CameraTrackRenderer:
         """
 
         self._ctn = len(point_cloud.points)
-        self.inv_mat = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]])
-        self.points = vbo.VBO(np.array([self.inv_mat.dot(p) for p in point_cloud.points], dtype=np.float32).reshape((-1,)))
+        self.inv_mat = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
+        self.points = vbo.VBO(np.array(point_cloud.points, dtype=np.float32).reshape((-1,)))
         self.colors = vbo.VBO(np.array(point_cloud.colors, dtype=np.float32).reshape((-1,)))
         self.cam_track = tracked_cam_track
-        self.track = vbo.VBO(np.array([(self.inv_mat.dot(tr1.t_vec), self.inv_mat.dot(tr2.t_vec))
+        self.track = vbo.VBO(np.array([(tr1.t_vec, tr2.t_vec)
                                        for tr1, tr2 in zip(self.cam_track[1:], self.cam_track)],
                                       dtype=np.float32).reshape((-1,)))
         self.cam_box = vbo.VBO(_build_cam_box(tracked_cam_parameters.aspect_ratio, tracked_cam_parameters.fov_y))
@@ -148,7 +147,7 @@ class CameraTrackRenderer:
 
         p = _build_projection_matrix(GLUT.glutGet(GLUT.GLUT_WINDOW_WIDTH), GLUT.glutGet(GLUT.GLUT_WINDOW_HEIGHT), camera_fov_y)
 
-        mvp = p.dot(_build_view_matrix(camera_rot_mat, -camera_tr_vec)).astype(np.float32)
+        mvp = p.dot(_build_view_matrix(camera_rot_mat, -camera_tr_vec)).dot(self.inv_mat).astype(np.float32)
 
         # a frame in which a tracked camera model and frustrum should be drawn
         # without interpolation
@@ -158,8 +157,8 @@ class CameraTrackRenderer:
 
         self._render(mvp, self.points, self._points_shader, self.colors)
         self._render(mvp, self.track, self._points_shader, points=False)
-        self._render(mvp.dot(_build_4d_rot_matrix(self.cam_track[tracked_cam_track_pos].r_mat.transpose(),
-                                                  self.inv_mat.dot(self.cam_track[tracked_cam_track_pos].t_vec))),
+        self._render(mvp.dot(_build_4d_rot_matrix(self.cam_track[tracked_cam_track_pos].r_mat,
+                                                  self.cam_track[tracked_cam_track_pos].t_vec)),
                      self.cam_box, self._points_shader, points=False)
 
         GLUT.glutSwapBuffers()
