@@ -127,8 +127,8 @@ TriangulationParameters = namedtuple(
 def _remove_correspondences_with_ids(correspondences: Correspondences,
                                      ids_to_remove: np.ndarray) \
         -> Correspondences:
-    ids = correspondences.ids.flatten()
-    ids_to_remove = ids_to_remove.flatten()
+    ids = correspondences.ids.flatten().astype(np.int64)
+    ids_to_remove = ids_to_remove.flatten().astype(np.int64)
     _, (indices_1, _) = snp.intersect(ids, ids_to_remove, indices=True)
     mask = np.full(ids.shape, True)
     mask[indices_1] = False
