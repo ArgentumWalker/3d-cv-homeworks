@@ -39,7 +39,6 @@ def _get_first_pose(corner_storage, instrinsic_mat, triangulation_params):
             continue
 
         R1, R2, t1 = decomposeEssentialMat(E)
-        #t1 = t1.reshape(-1)
 
         variants = [np.concatenate((R1, t1), axis=1),
                     np.concatenate((R2, t1), axis=1),
