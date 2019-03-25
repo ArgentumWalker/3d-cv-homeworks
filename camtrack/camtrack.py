@@ -39,12 +39,15 @@ def _get_first_pose(corner_storage, instrinsic_mat, triangulation_params):
             continue
 
         R1, R2, t1 = decomposeEssentialMat(E)
-        t1 = t1.reshape(-1)
+        #t1 = t1.reshape(-1)
 
-        variants = [Pose(R1.T, R1.T @ t1), Pose(R1.T, R1.T @ -t1), Pose(R2.T, R2.T @ t1), Pose(R2.T, R2.T @ -t1)]
+        variants = [np.concatenate((R1, t1), axis=1),
+                    np.concatenate((R2, t1), axis=1),
+                    np.concatenate((R1, -t1), axis=1),
+                    np.concatenate((R2, -t1), axis=1)]
         sizes = []
-        for p in variants:
-            _, ids = triangulate_correspondences(filtered_correspondences, eye3x4(), pose_to_view_mat3x4(p), instrinsic_mat, triangulation_params)
+        for vm in variants:
+            _, ids = triangulate_correspondences(filtered_correspondences, eye3x4(), vm, instrinsic_mat, triangulation_params)
             sizes.append(len(ids))
 
         id = np.argmax(sizes)
@@ -66,9 +69,9 @@ def _track_camera(corner_storage: CornerStorage, intrinsic_mat: np.ndarray) -> T
     not_added_frames = set(range(len(corner_storage)))
 
     ### First frame
-    i, pose, _ = _get_first_pose(corner_storage, intrinsic_mat, tr_params)
+    i, vm, _ = _get_first_pose(corner_storage, intrinsic_mat, tr_params)
     frame_matrices[0] = eye3x4()
-    frame_matrices[i] = pose_to_view_mat3x4(pose)
+    frame_matrices[i] = vm
     not_added_frames.remove(0)
     not_added_frames.remove(i)
 
