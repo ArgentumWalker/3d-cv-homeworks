@@ -16,34 +16,41 @@ import frameseq
 from _camtrack import *
 
 
-def _get_pose(corners1, corners2, instrinsic_mat, triangulation_params):
-    correspondence = build_correspondences(corners1, corners2)
+def _get_first_pose(corner_storage, instrinsic_mat, triangulation_params):
+    corners1 = corner_storage[0]
+    frame_results = []
+    for k in range(1, len(corner_storage)):
+        corners2 = corner_storage[k]
+        correspondence = build_correspondences(corners1, corners2)
 
-    if len(correspondence.points_1) < 6:
-        return None, -1
+        if len(correspondence.points_1) < 5:
+            continue
 
-    E, mask = findEssentialMat(correspondence.points_1, correspondence.points_2, instrinsic_mat)
+        E, mask = findEssentialMat(correspondence.points_1, correspondence.points_2, instrinsic_mat)
 
-    nonzero = np.nonzero(1 - mask.reshape(-1))[0]
-    filtered_correspondences = build_correspondences(corners1, corners2, nonzero)
-    inliers = len(nonzero)
+        if not (E.shape[0] == 3 and E.shape[1] == 3):
+            continue
 
-    if inliers / len(correspondence.points_1) > 0.8:
-        return None, -1
+        nonzero = np.nonzero(1 - mask.reshape(-1))[0]
+        filtered_correspondences = build_correspondences(corners1, corners2, nonzero)
+        inliers = len(nonzero)
 
-    R1, R2, t1 = decomposeEssentialMat(E)
-    t1 = t1.reshape(-1)
-    t2 = -t1
+        if inliers / len(correspondence.points_1) > 0.8:
+            continue
 
-    variants = [Pose(R1, t1), Pose(R1, t2), Pose(R2, t1), Pose(R2, t2)]
-    sizes = []
-    for p in variants:
-        _, ids = triangulate_correspondences(filtered_correspondences, eye3x4(), pose_to_view_mat3x4(p), instrinsic_mat, triangulation_params)
-        sizes.append(len(ids))
+        R1, R2, t1 = decomposeEssentialMat(E)
+        t1 = t1.reshape(-1)
 
-    id = np.argmax(sizes)
+        variants = [Pose(R1.T, R1.T @ t1), Pose(R1.T, R1.T @ -t1), Pose(R2.T, R2.T @ t1), Pose(R2.T, R2.T @ -t1)]
+        sizes = []
+        for p in variants:
+            _, ids = triangulate_correspondences(filtered_correspondences, eye3x4(), pose_to_view_mat3x4(p), instrinsic_mat, triangulation_params)
+            sizes.append(len(ids))
 
-    return variants[id], sizes[id]
+        id = np.argmax(sizes)
+
+        frame_results.append((k, variants[id], sizes[id]))
+    return max(*frame_results, key=lambda x: x[2])
 
 
 def _build_cloud(corners1, frame_mat1, corners2, frame_mat2, instrinsic_mat, triangulation_params):
@@ -59,8 +66,7 @@ def _track_camera(corner_storage: CornerStorage, intrinsic_mat: np.ndarray) -> T
     not_added_frames = set(range(len(corner_storage)))
 
     ### First frame
-    i, (pose, _) = max(*[(i+1, _get_pose(corner_storage[0], corners, intrinsic_mat, tr_params))
-                         for i, corners in enumerate(corner_storage[1:])], key=lambda x: x[1][1])
+    i, pose, _ = _get_first_pose(corner_storage, intrinsic_mat, tr_params)
     frame_matrices[0] = eye3x4()
     frame_matrices[i] = pose_to_view_mat3x4(pose)
     not_added_frames.remove(0)
@@ -101,7 +107,7 @@ def _track_camera(corner_storage: CornerStorage, intrinsic_mat: np.ndarray) -> T
             for pi in pts_ids:
                 pts_3d.append(pt_id2pos[pi])
 
-            retval, rvec, tvec, inliers = solvePnPRansac(np.array(pts_3d), np.array(pts), intrinsic_mat, None)
+            retval, rvec, tvec, inliers = solvePnPRansac(np.array(pts_3d).reshape(-1, 1, 3), np.array(pts).reshape(-1, 1, 2), intrinsic_mat, None)
 
             if not retval:
                 continue
