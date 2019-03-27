@@ -35,8 +35,18 @@ def _get_first_pose(corner_storage, instrinsic_mat, triangulation_params):
         filtered_correspondences = build_correspondences(corners1, corners2, nonzero)
         inliers = len(nonzero)
 
-        if inliers / len(correspondence.points_1) > 0.8:
+        _, mask = findHomography(filtered_correspondences.points_1, filtered_correspondences.points_2, RANSAC)
+
+        h_inliers = len(np.nonzero(1 - mask.reshape(-1))[0])
+
+        h_coef = h_inliers / len(filtered_correspondences.points_1)
+
+        h_coef_border = 0.8
+        if inliers / len(correspondence.points_1) > 0.9 or h_coef > h_coef_border:
             continue
+
+        h_coef /= h_coef_border
+        h_coef = 1 - h_coef
 
         R1, R2, t1 = decomposeEssentialMat(E)
 
@@ -51,17 +61,22 @@ def _get_first_pose(corner_storage, instrinsic_mat, triangulation_params):
 
         id = np.argmax(sizes)
 
-        frame_results.append((k, variants[id], sizes[id]))
+        frame_results.append((k, variants[id], sizes[id] * (1 + h_coef)))
+
+    print([f[2] for f in frame_results])
     return max(*frame_results, key=lambda x: x[2])
 
 
 def _build_cloud(corners1, frame_mat1, corners2, frame_mat2, instrinsic_mat, triangulation_params):
     correspondences = build_correspondences(corners1, corners2)
-    poss, ids = triangulate_correspondences(correspondences, frame_mat1, frame_mat2,instrinsic_mat, triangulation_params)
+    if len(correspondences.points_1) < 5:
+        return []
+    poss, ids = triangulate_correspondences(correspondences, frame_mat1, frame_mat2, instrinsic_mat, triangulation_params)
     return list(zip(ids, poss))
 
 
 def _track_camera(corner_storage: CornerStorage, intrinsic_mat: np.ndarray) -> Tuple[List[np.ndarray], PointCloudBuilder]:
+    print()
     tr_params = TriangulationParameters(max_reprojection_error=1., min_triangulation_angle_deg=4., min_depth=0.1)
     frame_matrices = [None] * len(corner_storage)
     pt_id2pos = {}
@@ -69,6 +84,7 @@ def _track_camera(corner_storage: CornerStorage, intrinsic_mat: np.ndarray) -> T
 
     ### First frame
     i, vm, _ = _get_first_pose(corner_storage, intrinsic_mat, tr_params)
+    print("Init with", i, "and", 0)
     frame_matrices[0] = eye3x4()
     frame_matrices[i] = vm
     not_added_frames.remove(0)
@@ -144,7 +160,7 @@ def _track_camera(corner_storage: CornerStorage, intrinsic_mat: np.ndarray) -> T
                         pt_id2pos[pi] = pos
                         added_points += 1
         print("Added frame", best_id, "with", len(inliers), "inliers.", removed_ctn,
-              "points were removed and", added_points, "were added.")
+              "points were removed and", added_points, "were added. Total point count is", len(pt_id2pos))
 
     ids = np.array(list(pt_id2pos.keys()))
 
